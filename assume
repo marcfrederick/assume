@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly ANSI_ESCAPE_RED='\033[0;31m'
+readonly ANSI_ESCAPE_NO_COLOR='\033[0m'
+
+error() {
+  stderr "${ANSI_ESCAPE_RED}Error: $*${ANSI_ESCAPE_NO_COLOR}"
+  exit 1
+}
+
+stderr() {
+  printf "%s\n" "$*" >&2
+}
+
+require() {
+  for cmd in "$@"; do
+    command -v "$cmd" >/dev/null 2>&1 || error "'$cmd' not found."
+  done
+}
+
+select_profile() {
+  local profiles profile
+  profiles="$(aws configure list-profiles)" || error "Failed to list AWS profiles."
+  [[ -n "$profiles" ]] || error "No AWS profiles found in ~/.aws/config."
+
+  profile="$(printf '%s\n' "$profiles" | fzf --prompt="Select AWS Profile: " --height=40% --border)" || true
+  [[ -n "${profile:-}" ]] || error "No profile selected."
+
+  printf '%s' "$profile"
+}
+
+aws_sso_login_if_needed() {
+  local profile="$1"
+
+  local sso_session sso_start_url
+  sso_session="$(aws configure get sso_session --profile "$profile" 2>/dev/null || true)"
+  sso_start_url="$(aws configure get sso_start_url --profile "$profile" 2>/dev/null || true)"
+  if [[ -z "$sso_session" && -z "$sso_start_url" ]]; then
+    stderr "Profile '${profile}' is not an SSO profile; skipping aws sso login."
+    return 0
+  fi
+
+  if aws sts get-caller-identity --profile "$profile" >/dev/null 2>&1; then
+    stderr "AWS SSO credentials already valid for profile '${profile}'."
+    return 0
+  fi
+
+  aws sso login --profile "$profile" >&2 || error "AWS SSO login failed for profile '$profile'."
+  stderr "Successfully logged in to AWS SSO for profile '${profile}'."
+}
+
+main() {
+  require aws fzf
+
+  local profile
+  profile="$(select_profile)"
+
+  aws_sso_login_if_needed "$profile"
+
+  local region
+  region="$(aws configure get region --profile "$profile" 2>/dev/null || true)"
+
+  printf 'export AWS_PROFILE=%q\n' "$profile"
+  if [[ -n "$region" ]]; then
+    printf 'export AWS_REGION=%q\n' "$region"
+    printf 'export AWS_DEFAULT_REGION=%q\n' "$region"
+  fi
+}
+
+main "$@"
