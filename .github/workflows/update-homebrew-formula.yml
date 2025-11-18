@@ -59,6 +59,7 @@ jobs:
             depends_on "awscli"
             depends_on "bash"
             depends_on "fzf"
+            depends_on "yq"
 
             def install
               bin.install "assume"

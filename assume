@@ -21,8 +21,8 @@ require() {
 
 select_profile() {
   local profiles profile
-  profiles="$(aws configure list-profiles)" || error "Failed to list AWS profiles."
-  [[ -n "$profiles" ]] || error "No AWS profiles found in ~/.aws/config."
+  profiles="$(get_aws_config_value 'keys | .[]' | grep -E '^profile ' | sed 's/^profile //')" || error "Failed to list AWS profiles."
+  [[ -n "$profiles" ]] || error "No AWS profiles found in $AWS_CONFIG_FILE."
 
   profile="$(printf '%s\n' "$profiles" | fzf --prompt="Select AWS Profile: " --height=40% --border)" || true
   [[ -n "${profile:-}" ]] || error "No profile selected."
@@ -30,12 +30,19 @@ select_profile() {
   printf '%s' "$profile"
 }
 
+get_aws_config_value() {
+    local key="${1:?yq key is required}"
+    local config_file="${AWS_CONFIG_FILE:-$HOME/.aws/config}"
+
+    yq eval --input-format=ini --output-format=ini "$key" "$config_file" 2>/dev/null || true
+}
+
 aws_sso_login_if_needed() {
   local profile="$1"
 
   local sso_session sso_start_url
-  sso_session="$(aws configure get sso_session --profile "$profile" 2>/dev/null || true)"
-  sso_start_url="$(aws configure get sso_start_url --profile "$profile" 2>/dev/null || true)"
+  sso_session=$(get_aws_config_value ".[\"profile ${profile}\"].sso_session")
+  sso_start_url=$(get_aws_config_value ".[\"profile ${profile}\"].sso_start_url")
   if [[ -z "$sso_session" && -z "$sso_start_url" ]]; then
     stderr "Profile '${profile}' is not an SSO profile; skipping aws sso login."
     return 0
@@ -51,7 +58,7 @@ aws_sso_login_if_needed() {
 }
 
 main() {
-  require aws fzf
+  require aws fzf yq
 
   local profile="${1:-}"
   if [[ -z "$profile" ]]; then
@@ -61,7 +68,7 @@ main() {
   aws_sso_login_if_needed "$profile"
 
   local region
-  region="$(aws configure get region --profile "$profile" 2>/dev/null || true)"
+  region="$(get_aws_config_value ".[\"profile ${profile}\"].region")"
 
   printf 'export AWS_PROFILE=%q\n' "$profile"
   if [[ -n "$region" ]]; then
