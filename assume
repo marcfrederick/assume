@@ -53,8 +53,10 @@ aws_sso_login_if_needed() {
 main() {
   require aws fzf
 
-  local profile
-  profile="$(select_profile)"
+  local profile="${1:-}"
+  if [[ -z "$profile" ]]; then
+    profile="$(select_profile)"
+  fi
 
   aws_sso_login_if_needed "$profile"
 
