@@ -57,6 +57,7 @@ jobs:
             head      "https://github.com/marcfrederick/assume.git", branch: "main"
 
             depends_on "awscli"
+            depends_on "bash"
             depends_on "fzf"
 
             def install
